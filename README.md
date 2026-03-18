@@ -74,7 +74,7 @@ Analyzes environment and recommends:
 ### One-Command Full Pivot
 
 ```bash
-./pivot2.sh full user host
+./pivot.sh full user host
 ```
 
 Modes:
@@ -146,7 +146,7 @@ Tracks:
 ## Installation
 
 ```bash
-chmod +x pivot2.sh
+chmod +x pivot.sh
 ```
 
 Dependencies:
