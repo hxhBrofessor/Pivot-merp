@@ -120,7 +120,7 @@ Handles:
 ### Built-in Visibility
 
 ```bash
-./pivot2.sh status
+./pivot.sh status
 ```
 
 Shows:
