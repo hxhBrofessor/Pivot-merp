@@ -10,7 +10,6 @@ RED="✖"
 YELLOW="⚠"
 
 DEFAULT_SOCKS_PORT=1080
-DEFAULT_LOCAL_PORT=8080
 DEFAULT_CONTROL_PERSIST="10m"
 SSH_LOG_LEVEL="${SSH_LOG_LEVEL:-ERROR}"
 
@@ -26,36 +25,24 @@ log_warn() { echo -e "[${YELLOW}] $1" | tee -a "$LOGFILE"; }
 log_info() { echo -e "[*] $1" | tee -a "$LOGFILE"; }
 
 ########################################
-# CLEANUP TRAP (FIXED)
+# CLEANUP TRAP
 ########################################
-# Only trigger cleanup on interruption signals, not normal exit
 
 cleanup() {
   log_warn "Interrupt received — cleaning up pivots..."
   stop_all || true
 }
-
 trap cleanup INT TERM
 
 ########################################
 # HELPERS
 ########################################
 
-sock_path() {
-  echo "${CONTROL_DIR}/${1}@${2}.ctl"
-}
+sock_path() { echo "${CONTROL_DIR}/${1}@${2}.ctl"; }
+meta_path() { echo "${CONTROL_DIR}/${1}@${2}.meta"; }
+pid_path()  { echo "${CONTROL_DIR}/${1}@${2}.pid"; }
 
-meta_path() {
-  echo "${CONTROL_DIR}/${1}@${2}.meta"
-}
-
-pid_path() {
-  echo "${CONTROL_DIR}/${1}@${2}.pid"
-}
-
-final_target() {
-  echo "${1%%,*}"
-}
+final_target() { echo "${1%%,*}"; }
 
 need_bin() {
   command -v "$1" >/dev/null 2>&1 || log_fail "Missing binary: $1"
@@ -102,9 +89,11 @@ check_port_available() {
   local chosen
   chosen="$(find_free_port "$requested")"
 
-  [[ "$chosen" != "$requested" ]] \
-    && log_warn "Port ${requested} in use -> using ${chosen}" \
-    || log_ok "Port ${chosen} available"
+  if [[ "$chosen" != "$requested" ]]; then
+    log_warn "Port ${requested} in use -> using ${chosen}"
+  else
+    log_ok "Port ${chosen} available"
+  fi
 
   echo "$chosen"
 }
@@ -138,33 +127,7 @@ init_control() {
 }
 
 ########################################
-# ROUTE DISCOVERY
-########################################
-
-discover_networks() {
-  local user="$1"
-  local host="$2"
-  local ctl target
-
-  ctl="$(sock_path "$user" "$host")"
-  target="$(final_target "$host")"
-
-  ssh -o ControlPath="$ctl" "${user}@${target}" \
-    "ip route | grep -E '(^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.|^192\.168\.)'" \
-    2>/dev/null || true
-}
-
-extract_private_cidrs() {
-  local user="$1"
-  local host="$2"
-
-  discover_networks "$user" "$host" \
-    | awk '$1 ~ /\// {print $1}' \
-    | sort -u
-}
-
-########################################
-# SOCKS (SAFE METADATA)
+# SOCKS
 ########################################
 
 start_socks() {
@@ -179,7 +142,6 @@ start_socks() {
   need_bin ssh
   need_bin ss
 
-  # Safe metadata parsing (no source)
   if [[ -f "$meta" ]]; then
     MODE=$(grep '^MODE=' "$meta" | cut -d= -f2 || true)
     PORT=$(grep '^PORT=' "$meta" | cut -d= -f2 || true)
@@ -204,7 +166,7 @@ start_socks() {
 }
 
 ########################################
-# SSHUTTLE (PID SAFETY)
+# SSHUTTLE (FIXED + SAFE BACKGROUND)
 ########################################
 
 start_sshuttle() {
@@ -212,58 +174,73 @@ start_sshuttle() {
   local host="$2"
   local cidrs="$3"
   local dns="${4:-}"
-  local pidfile
+  local pidfile meta
 
   pidfile="$(pid_path "$user" "$host")"
+  meta="$(meta_path "$user" "$host")"
 
   need_bin sshuttle
+  need_bin sudo
 
-  # Prevent duplicate sshuttle
-  if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
-    log_warn "sshuttle already running for ${user}@${host}"
-    return
+  if [[ -f "$pidfile" ]]; then
+    if kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+      log_warn "sshuttle already running for ${user}@${host}"
+      return
+    fi
   fi
 
-  log_info "Starting sshuttle for ${cidrs}"
+  ########################################
+  # CLEAN SUDO FIRST
+  ########################################
+  log_info "Requesting sudo privileges..."
+  sudo -v || log_fail "sudo authentication failed"
 
-  # NOTE: sshuttle does NOT reuse ControlMaster sessions
-  sshuttle ${dns:-} -r "${user}@${host}" "${cidrs}" &
+  ########################################
+  # SAFE BACKGROUND MODE
+  ########################################
+  if sudo -n true >/dev/null 2>&1; then
+    log_ok "sudo cached — launching sshuttle in background"
 
-  echo $! > "$pidfile"
-  sleep 2
+    sshuttle --daemon ${dns:-} -r "${user}@${host}" "${cidrs}"
 
-  if kill -0 "$(cat "$pidfile")" 2>/dev/null; then
-    log_ok "sshuttle started"
+    echo "MODE=SSHUTTLE" > "$meta"
+    echo "CIDRS=${cidrs}" >> "$meta"
+
+    log_ok "sshuttle running in background"
   else
-    log_fail "sshuttle failed"
+    log_warn "sudo not cached — running interactive mode"
+    log_info "You will be prompted for SSH password"
+
+    sshuttle ${dns:-} -r "${user}@${host}" "${cidrs}"
   fi
 }
 
 ########################################
-# STATUS (ENHANCED)
+# STATUS
 ########################################
 
 show_status() {
-  log_info "Pivot sessions (metadata):"
+  log_info "Pivot sessions:"
 
-  for f in "${CONTROL_DIR}"/*.meta 2>/dev/null; do
-    [[ -f "$f" ]] || continue
+  shopt -s nullglob
+  for f in "${CONTROL_DIR}"/*.meta; do
     echo "--- $(basename "$f" .meta) ---"
     cat "$f"
   done
+  shopt -u nullglob
 
   log_info "SSH control sessions:"
   ls "${CONTROL_DIR}"/*.ctl 2>/dev/null || log_warn "None"
 
   log_info "SSH listeners:"
-  ss -ltnp | grep ssh || log_warn "None"
+  ss -ltnp 2>/dev/null | grep ssh || log_warn "None"
 
   log_info "sshuttle processes:"
   pgrep -af sshuttle || log_warn "None"
 }
 
 ########################################
-# STOP FUNCTIONS
+# STOP
 ########################################
 
 stop_target() {
@@ -292,9 +269,17 @@ case "${1:-}" in
   sshuttle) start_sshuttle "$2" "$3" "$4" "${5:-}" ;;
   status) show_status ;;
   stop)
-    [[ "${2:-}" == "all" ]] && stop_all || stop_target "$2" "$3"
+    if [[ "${2:-}" == "all" ]]; then
+      stop_all
+    else
+      stop_target "$2" "$3"
+    fi
     ;;
   *)
-    echo "Usage: socks | sshuttle | status | stop <user host | all>"
+    echo "Usage:"
+    echo "  socks <user> <host> [port]"
+    echo "  sshuttle <user> <host> <cidr> [--dns]"
+    echo "  status"
+    echo "  stop <user host | all>"
     ;;
 esac
