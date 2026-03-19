@@ -1,376 +1,379 @@
-# Pivot-Merp – SSH Pivoting Automation Framework
+# Pivot-MERP
+
+> **Modular, operator-focused SSH pivoting framework for red teamers and penetration testers**
+
+---
 
 ## Overview
 
-**Pivot-Merp** is a lightweight, operator-focused SSH pivoting framework designed to streamline lateral movement, internal reconnaissance, and controlled access into segmented environments.
+**Pivot-MERP** is a lightweight, operator-friendly framework for managing SSH-based pivots during red team engagements and penetration tests.
 
-It abstracts common SSH pivoting techniques into a single command interface, enabling operators to rapidly transition between:
+It simplifies:
 
-- SOCKS proxying (proxychains / Burp)
-- Local port forwarding (targeted service access)
-- Full network tunneling (sshuttle)
+* SOCKS proxying
+* SSH tunneling (local & remote)
+* Multi-hop pivoting
+* Transparent routing with `sshuttle`
+* Session tracking & cleanup
 
-Pivot-Merp is built for **red team operations, adversary emulation, and lab environments**, with emphasis on:
-
-- Speed  
-- Reusability  
-- Low operator friction  
-- Clean session management  
-- Real-world tradecraft alignment  
-
----
-
-## Inspiration
-
-Inspired by:
-
- https://grahamhelton.com/blog/ssh-cheatsheet
-
-That resource provides foundational SSH tradecraft.  
-**Pivot-Merp operationalizes those techniques into a repeatable framework for real engagements.**
-
----
-
-## Core Design Philosophy
-
-Pivot follows a layered pivoting model:
-
-| Layer       | Method    | Use Case                          |
-|------------|----------|-----------------------------------|
-| App Layer  | SOCKS    | Burp, ffuf, proxychains           |
-| Targeted   | URL      | Specific services                 |
-| Network    | SSHuttle | Full internal recon               |
-
- Operators choose the right level of access, not just “more access”
+Built for **real-world operations**, not just lab demos.
 
 ---
 
 ## Features
 
-### Persistent Control Sessions
-- Uses SSH ControlMaster  
-- Reuses authenticated sessions  
-- Reduces noise + re-authentication  
+### Core Capabilities
 
-### Intelligent Route Awareness
-- Enumerates internal routes via jump host  
-- Extracts private CIDRs automatically  
-- Enables informed pivot decisions  
+*  SOCKS proxy pivoting (`ssh -D`)
+*  Transparent pivoting (`sshuttle`)
+*  Local port forwarding (`ssh -L`)
+*  Remote port forwarding (`ssh -R`)
+*  Multi-hop chaining (`ProxyJump`)
+*  Session tracking & lifecycle management
+*  Clean teardown (no orphaned processes)
 
-### Pivot Recommendation Engine
+---
+
+###  Security Improvements
+
+* Safer SSH defaults (no blind trust)
+* Dedicated `known_hosts` file
+* `--insecure` flag for lab environments
+* No unsafe `source` usage
+* Controlled process cleanup
+
+---
+
+###  Operator UX
+
+* Simple CLI interface
+* Persistent sessions
+* Status visibility
+* Logging with timestamps
+* Multi-target awareness
+
+---
+
+##  Installation
 
 ```bash
-./pivot.sh suggest user host
-```
-
-Analyzes environment and recommends:
-
-- sshuttle → multiple internal networks  
-- socks → unknown / unstable environments  
-- url → targeted service access  
-
----
-
-### One-Command Full Pivot
-
-```bash
-./pivot.sh full user host
-```
-
-Modes:
-
-```bash
-auto      # intelligent selection
-socks     # force SOCKS pivot
-sshuttle  # force full network tunnel
-```
-
-Handles:
-- session setup  
-- route discovery  
-- pivot execution  
-- operator guidance  
-
----
-
-### Multi-Mode Pivoting
-
-| Mode     | Description                              |
-|----------|------------------------------------------|
-| SOCKS    | Proxy-based pivot (proxychains, Burp)    |
-| URL      | Local port forwarding                    |
-| SSHuttle | Transparent network pivot                |
-
----
-
-### Auto Port Management
-- Detects port collisions  
-- Automatically selects next available port  
-- Prevents failed pivots  
-
----
-
-### SOCKS Auto-Reuse
-- Detects existing tunnels  
-- Reuses active SOCKS sessions  
-- Avoids duplicate listeners  
-
----
-
-### Built-in Visibility
-
-```bash
-./pivot.sh status
-```
-
-Shows:
-- Active control sockets  
-- Listening ports  
-- sshuttle processes  
-
----
-
-### Logging
-
-```
-~/.pivot/logs/pivot.log
-```
-
-Tracks:
-- session creation  
-- pivot activity  
-- errors  
-
----
-
-## Installation
-
-```bash
+git clone https://github.com/hxhBrofessor/Pivot-merp.git
+cd Pivot-merp
 chmod +x pivot.sh
 ```
 
-Dependencies:
+Optional:
 
 ```bash
-sudo apt install ssh proxychains sshuttle iproute2
+sudo ln -s $(pwd)/pivot.sh /usr/local/bin/pivot
 ```
 
 ---
 
-## Usage
-
-### SOCKS Proxy (Most Common)
+##  Usage
 
 ```bash
-./pivot.sh socks user target_host
-```
-
-Configure:
-
-```
-proxychains → socks5 127.0.0.1 1080
+./pivot.sh [--insecure] <mode> <user> <target> [options]
 ```
 
 ---
 
-### URL Forwarding (Targeted Access)
+##  Target Format
+
+Supports **multi-hop pivoting** using comma-separated hosts:
 
 ```bash
-./pivot.sh url user target_host internal_ip 443
-```
-
-Access:
-
-```
-https://127.0.0.1:<port>
-```
-
----
-
-### SSHuttle (Full Network Pivot)
-
-```bash
-./pivot.sh sshuttle user target_host X.X.0.0/12 --dns
-```
-
-Enables:
-- native nmap  
-- DNS resolution  
-- full internal visibility  
-
----
-
-### Route Discovery
-
-```bash
-./pivot.sh routes user target_host
-```
-
----
-
-### Pivot Recommendation
-
-```bash
-./pivot.sh suggest user target_host
-```
-
----
-
-### One-Command Pivot
-
-```bash
-./pivot.sh full user target_host
-```
-
----
-
-### Status
-
-```bash
-./pivot.sh status
-```
-
----
-
-### Stop Pivot
-
-```bash
-./pivot.sh stop user target_host
-./pivot.sh stop all
-```
-
----
-
-## ⚠️ Important Operational Notes
-
-### SOCKS + Internal DNS
-
-When using SOCKS:
-
-- Internal hostnames may not resolve  
-
-Use:
-
-```bash
-https://<internal_ip>
--H "Host: target.domain"
+jump1,jump2,target
 ```
 
 Example:
 
 ```bash
-proxychains curl -k https://x.x.x.x \
--H "Host: test.tesst.io"
+./pivot.sh socks kali jump1,jump2,internal-host 1080
 ```
 
 ---
 
-### Tool Behavior Over SOCKS
-
-| Tool  | Behavior                          |
-|------|----------------------------------|
-| ffuf | Needs tuning (threads ↓)         |
-| dirb | More stable                      |
-| nmap | Limited (use sshuttle instead)   |
+##  Modes
 
 ---
 
-### Recommended FFUF Settings (SOCKS)
+###  SOCKS Proxy
 
-```
--t 10–25
--rate 50–100
-```
-
----
-
-### When to Switch to SSHuttle
-
-Switch when:
-- scanning subnets  
-- DNS enumeration needed  
-- tools failing over SOCKS  
+Create a SOCKS5 proxy for tools like Burp, proxychains, etc.
 
 ```bash
-./pivot.sh sshuttle user host X.X.0.0/12 --dns
+./pivot.sh socks <user> <target> <port>
 ```
 
----
+Example:
 
-## Operational Workflow
-
-### Typical Red Team Flow
-
-1. Initial foothold (SSH access)
-
-2. Analyze environment:
 ```bash
-./pivot.sh suggest user host
+./pivot.sh socks kali target.internal 1080
 ```
 
-3. Establish pivot:
+Multi-hop:
+
 ```bash
-./pivot.sh full user host
+./pivot.sh socks kali jump1,target.internal 1080
 ```
 
-4. Begin recon:
-- ffuf  
-- nmap  
-- Burp Suite  
-- custom tooling  
+---
+
+###  Transparent Pivot (sshuttle)
+
+Route traffic through target network.
+
+```bash
+./pivot.sh sshuttle <user> <target> <subnet> [sshuttle options]
+```
+
+Example:
+
+```bash
+./pivot.sh sshuttle kali target.internal 172.16.0.0/12 --dns
+```
+
+Advanced:
+
+```bash
+./pivot.sh sshuttle kali jump1,target 10.0.0.0/8 --dns --auto-nets
+```
 
 ---
 
-## Use Cases
+###  Local Port Forward
 
-- Red Team Operations  
-- Adversary Emulation
-- Internal Recon  
-- Segmented Enterprise Networks  
-- OT / ICS Environments  
-- Cyber Ranges / Labs (HTB, CPTC)  
+Expose remote service locally.
 
----
+```bash
+./pivot.sh local <user> <target> <local_port> <remote_host> <remote_port>
+```
 
-## OPSEC Considerations
+Example:
 
-Pivot intentionally balances usability and stealth.
-
-### Observable Artifacts
-
-- SSH control sockets (~/.pivot)  
-- Local listening ports  
-- sshuttle processes  
-- proxychains usage  
+```bash
+./pivot.sh local kali target.internal 8443 127.0.0.1 443
+```
 
 ---
 
-### Recommendations
+###  Remote Port Forward
 
-- Use SOCKS for low-noise operations  
-- Use sshuttle only when needed  
+Expose local service to remote host.
 
-Cleanup:
+```bash
+./pivot.sh remote <user> <target> <remote_port> <local_host> <local_port>
+```
+
+Example:
+
+```bash
+./pivot.sh remote kali target.internal 8080 127.0.0.1 8080
+```
+
+---
+
+##  Session Management
+
+---
+
+###  View Active Sessions
+
+```bash
+./pivot.sh status
+```
+
+Displays:
+
+* Mode (socks / sshuttle / local / remote)
+* Target & jump chain
+* Ports / routes
+* Session health
+
+---
+
+###  Stop a Session
+
+```bash
+./pivot.sh stop <user> <target>
+```
+
+---
+
+###  Stop Everything
 
 ```bash
 ./pivot.sh stop all
 ```
 
----
+ Gracefully closes:
 
-## Future Improvements
-
-- Multi-hop auto chaining (jump1,jump2,target)  
-- Stealth mode (ephemeral sockets, no disk artifacts)  
-- Auto proxychains config injection  
-- Burp auto-config helper  
-- Session metadata tracking  
-- Detection-aware pivot throttling  
+* SSH ControlMaster sessions
+* sshuttle processes
 
 ---
 
-## Author Notes
+##  Tool Integration
 
-Pivot was built to eliminate friction in real-world pivoting scenarios and provide a repeatable, operator-friendly workflow.
+---
 
-It is not just a wrapper around SSH — it is a **decision engine + execution layer for pivoting operations**.
+###  Proxychains
+
+Edit:
+
+```bash
+sudo nano /etc/proxychains.conf
+```
+
+Enable:
+
+```bash
+dynamic_chain
+socks5 127.0.0.1 1080
+```
+
+Run:
+
+```bash
+proxychains nmap -sT target.internal
+proxychains firefox
+```
+
+---
+
+###  Burp Suite
+
+* Set SOCKS proxy:
+
+  * Host: `127.0.0.1`
+  * Port: `1080`
+* Enable SOCKS in Burp settings
+
+---
+
+##  Security Modes
+
+---
+
+###  Default (Safe)
+
+* Uses local `known_hosts`
+* Validates host keys
+
+---
+
+###  Insecure Mode (Lab Only)
+
+```bash
+./pivot.sh --insecure socks kali target 1080
+```
+
+Disables:
+
+* Host key checking
+* Known hosts validation
+
+---
+
+##  Project Structure
+
+```
+Pivot-merp/
+│
+├── pivot.sh
+├── README.md
+└── .pivot/
+    ├── logs/
+    ├── *.meta
+    └── known_hosts
+```
+
+---
+
+##  Example Workflow
+
+```bash
+# Step 1: Establish SOCKS pivot
+./pivot.sh socks kali jump,target 1080
+
+# Step 2: Use proxychains
+proxychains nmap -Pn target.internal
+
+# Step 3: Pivot full subnet
+./pivot.sh sshuttle kali jump,target 10.10.0.0/16 --dns
+
+# Step 4: Check sessions
+./pivot.sh status
+
+# Step 5: Cleanup
+./pivot.sh stop all
+```
+
+---
+
+##  Troubleshooting
+
+---
+
+###  DNS Not Resolving
+
+Use:
+
+```bash
+--dns
+```
+
+---
+
+###  Cannot Connect Through SOCKS
+
+* Verify port is open:
+
+```bash
+ss -tulnp | grep 1080
+```
+
+---
+
+###  sshuttle Requires Root
+
+Run with sudo:
+
+```bash
+sudo ./pivot.sh sshuttle ...
+```
+
+---
+
+##  Roadmap
+
+* [ ] Reverse pivoting (SOCKS bind / reverse tunnels)
+* [ ] JSON session tracking
+* [ ] Plugin/module architecture
+* [ ] Auto proxychains integration
+* [ ] Burp launcher
+* [ ] Route conflict detection
+* [ ] OPSEC modes (jitter, shaping)
+
+---
+
+## Disclaimer
+
+This tool is intended for:
+
+* Authorized penetration testing
+* Red team engagements
+* Lab environments
+
+**Do not use without proper authorization.**
+
+---
+
+##  Author
+
+**hxhBrofessor**
+Cyber Warfare | Red Team | Pivot Goblin
+
+---
+
